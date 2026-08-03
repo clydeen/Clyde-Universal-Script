@@ -1,14 +1,15 @@
--- Neumorphic Hub: Fly, ESP, Night Vision & Admin Detector
+-- Neumorphic Hub: Fly, ESP, Night Vision, Admin Detector & WalkSpeed
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Lighting = game:GetService("Lighting")
 local Workspace = game:GetService("Workspace")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 local LocalPlayer = Players.LocalPlayer
 local Camera = Workspace.CurrentCamera
 
--- Variables for toggles
+-- Shared Variables
 local Toggles = {
     Fly = false,
     NightVision = false,
@@ -18,8 +19,43 @@ local Toggles = {
     AutoLeave = false
 }
 
+local currentSpeed = 16 -- Default Walk/Fly Speed
 local espObjects = {}
 local flyConnection
+
+-- ==========================================
+-- UI DRAG LOGIC (Reliable)
+-- ==========================================
+local function MakeDraggable(guiItem)
+    local dragging, dragInput, dragStart, startPos
+    
+    guiItem.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = guiItem.Position
+            
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+    
+    guiItem.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            guiItem.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        end
+    end)
+end
 
 -- ==========================================
 -- UI CONSTRUCTION (Neumorphic Style)
@@ -37,15 +73,51 @@ else
     ScreenGui.Parent = game:GetService("CoreGui")
 end
 
+-- Minimized Circle Button
+local MinimizedBtn = Instance.new("TextButton")
+MinimizedBtn.Parent = ScreenGui
+MinimizedBtn.Size = UDim2.new(0, 50, 0, 50)
+MinimizedBtn.Position = UDim2.new(0.05, 0, 0.05, 0)
+MinimizedBtn.BackgroundColor3 = Color3.fromRGB(230, 235, 240)
+MinimizedBtn.Text = "C"
+MinimizedBtn.Font = Enum.Font.GothamBold
+MinimizedBtn.TextSize = 24
+MinimizedBtn.TextColor3 = Color3.fromRGB(80, 80, 80)
+MinimizedBtn.Visible = false
+Instance.new("UICorner", MinimizedBtn).CornerRadius = UDim.new(1, 0) -- Perfect Circle
+MakeDraggable(MinimizedBtn)
+
 local MainFrame = Instance.new("Frame")
 MainFrame.Parent = ScreenGui
 MainFrame.BackgroundColor3 = Color3.fromRGB(230, 235, 240)
 MainFrame.Position = UDim2.new(0.3, 0, 0.3, 0)
 MainFrame.Size = UDim2.new(0, 450, 0, 300)
 MainFrame.Active = true
-MainFrame.Draggable = true
 MainFrame.ClipsDescendants = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 15)
+MakeDraggable(MainFrame)
+
+-- Minimize Button (Top Right of MainFrame)
+local MinimizeToggleBtn = Instance.new("TextButton")
+MinimizeToggleBtn.Parent = MainFrame
+MinimizeToggleBtn.Size = UDim2.new(0, 30, 0, 30)
+MinimizeToggleBtn.Position = UDim2.new(1, -40, 0, 10)
+MinimizeToggleBtn.BackgroundColor3 = Color3.fromRGB(200, 205, 210)
+MinimizeToggleBtn.Text = "-"
+MinimizeToggleBtn.Font = Enum.Font.GothamBold
+MinimizeToggleBtn.TextSize = 20
+MinimizeToggleBtn.TextColor3 = Color3.fromRGB(80, 80, 80)
+Instance.new("UICorner", MinimizeToggleBtn).CornerRadius = UDim.new(0, 8)
+
+MinimizeToggleBtn.MouseButton1Click:Connect(function()
+    MainFrame.Visible = false
+    MinimizedBtn.Visible = true
+end)
+
+MinimizedBtn.MouseButton1Click:Connect(function()
+    MinimizedBtn.Visible = false
+    MainFrame.Visible = true
+end)
 
 -- Sidebar
 local Sidebar = Instance.new("Frame")
@@ -62,7 +134,6 @@ Content.BackgroundTransparency = 1
 Content.Position = UDim2.new(0, 140, 0, 10)
 Content.Size = UDim2.new(1, -150, 1, -20)
 
-local currentTab = nil
 local function CreateTab(name)
     local tabFrame = Instance.new("ScrollingFrame")
     tabFrame.Parent = Content
@@ -80,11 +151,11 @@ end
 
 local tabs = {
     Main = CreateTab("Main"),
+    Player = CreateTab("Player"),
     Visuals = CreateTab("Visuals"),
     Other = CreateTab("Other")
 }
 tabs.Main.Visible = true
-currentTab = tabs.Main
 
 -- Tab Buttons
 local yOffset = 10
@@ -108,11 +179,12 @@ local function CreateTabButton(name, targetTab)
 end
 
 CreateTabButton("Main", tabs.Main)
+CreateTabButton("Player", tabs.Player)
 CreateTabButton("Visuals", tabs.Visuals)
 CreateTabButton("Other", tabs.Other)
 
 -- Element Builders
-local function CreateLabel(parent, text)
+local function CreateLabel(parent, text, isDynamic)
     local lbl = Instance.new("TextLabel")
     lbl.Parent = parent
     lbl.Size = UDim2.new(1, 0, 0, 30)
@@ -122,12 +194,47 @@ local function CreateLabel(parent, text)
     lbl.Font = Enum.Font.GothamMedium
     lbl.TextSize = 14
     lbl.TextColor3 = Color3.fromRGB(60, 60, 60)
+    return lbl
+end
+
+local function CreateInput(parent, text, defaultText, callback)
+    local frame = Instance.new("Frame")
+    frame.Parent = parent
+    frame.Size = UDim2.new(1, -20, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(240, 245, 250)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = frame
+    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 14
+    lbl.TextColor3 = Color3.fromRGB(80, 80, 80)
+
+    local box = Instance.new("TextBox")
+    box.Parent = frame
+    box.Size = UDim2.new(0, 60, 0, 25)
+    box.Position = UDim2.new(1, -70, 0.5, -12.5)
+    box.BackgroundColor3 = Color3.fromRGB(220, 225, 230)
+    box.Text = tostring(defaultText)
+    box.Font = Enum.Font.GothamBold
+    box.TextColor3 = Color3.fromRGB(40, 40, 40)
+    box.TextSize = 12
+    Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
+
+    box.FocusLost:Connect(function()
+        if callback then callback(box.Text) end
+    end)
 end
 
 local function CreateToggle(parent, text, flag, callback)
     local frame = Instance.new("Frame")
     frame.Parent = parent
-    frame.Size = UDim2.new(1, -10, 0, 40)
+    frame.Size = UDim2.new(1, -20, 0, 40)
     frame.BackgroundColor3 = Color3.fromRGB(240, 245, 250)
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
     
@@ -169,7 +276,7 @@ end
 local function CreateButton(parent, text, callback)
     local btn = Instance.new("TextButton")
     btn.Parent = parent
-    btn.Size = UDim2.new(1, -10, 0, 40)
+    btn.Size = UDim2.new(1, -20, 0, 40)
     btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
     btn.Text = text
     btn.Font = Enum.Font.GothamBold
@@ -213,7 +320,11 @@ local function updateESP()
     if Toggles.ItemESP then
         for _, obj in pairs(Workspace:GetDescendants()) do
             if obj:IsA("Tool") then
-                createHighlight(obj.Parent == Workspace and obj or obj.Parent, Color3.fromRGB(0, 255, 0))
+                -- Attach highlight to the Handle or a base part inside the tool so it renders
+                local handle = obj:FindFirstChild("Handle") or obj:FindFirstChildWhichIsA("BasePart")
+                if handle then
+                    createHighlight(handle, Color3.fromRGB(0, 255, 0))
+                end
             end
         end
     end
@@ -226,15 +337,15 @@ local function updateESP()
     end
 end
 
-RunService.RenderStepped:Connect(function()
-    if Toggles.PlayerESP or Toggles.ItemESP or Toggles.EntityESP then
-        -- Throttled ESP update can be implemented here if laggy, 
-        -- but Highlight instances auto-update their bounds.
-    end
+-- Populating Main Tab
+local gameLabel = CreateLabel(tabs.Main, "Game: Loading...")
+task.spawn(function()
+    pcall(function()
+        local productInfo = MarketplaceService:GetProductInfo(game.PlaceId)
+        gameLabel.Text = " Game: " .. productInfo.Name
+    end)
 end)
 
--- Populating Main Tab
-CreateLabel(tabs.Main, "Game: " .. game.Name)
 CreateLabel(tabs.Main, "User: " .. LocalPlayer.Name)
 
 CreateToggle(tabs.Main, "Camera Fly", "Fly", function(state)
@@ -244,22 +355,20 @@ CreateToggle(tabs.Main, "Camera Fly", "Fly", function(state)
     local hum = char:FindFirstChildOfClass("Humanoid")
 
     if state then
-        -- Freeze character normally
         if hum then hum.PlatformStand = true end
         
         local bv = Instance.new("BodyVelocity")
         bv.Name = "FlyVelocity"
-        bv.MaxForce = Vector3.new(100000, 100000, 100000)
+        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge) -- Fixed Force
         bv.Velocity = Vector3.zero
         bv.Parent = hrp
         
         local bg = Instance.new("BodyGyro")
         bg.Name = "FlyGyro"
-        bg.MaxTorque = Vector3.new(100000, 100000, 100000)
+        bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge) -- Fixed Torque
         bg.P = 9e4
         bg.Parent = hrp
 
-        local speed = 50
         flyConnection = RunService.RenderStepped:Connect(function()
             local moveDir = Vector3.zero
             if UserInputService:IsKeyDown(Enum.KeyCode.W) then
@@ -275,7 +384,8 @@ CreateToggle(tabs.Main, "Camera Fly", "Fly", function(state)
                 moveDir = moveDir + Camera.CFrame.RightVector
             end
             
-            bv.Velocity = moveDir * speed
+            -- Sync Fly speed with Custom WalkSpeed
+            bv.Velocity = moveDir * currentSpeed 
             bg.CFrame = Camera.CFrame
         end)
     else
@@ -287,8 +397,30 @@ CreateToggle(tabs.Main, "Camera Fly", "Fly", function(state)
 end)
 
 CreateToggle(tabs.Main, "Auto Leave (Admin Det)", "AutoLeave", function(state)
-    -- Logic handled in PlayerAdded event below
 end)
+
+-- Populating Player Tab (New)
+CreateInput(tabs.Player, "Walk Speed", "16", function(val)
+    local num = tonumber(val)
+    if num then
+        currentSpeed = num
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("Humanoid") then
+            char.Humanoid.WalkSpeed = currentSpeed
+        end
+    end
+end)
+
+-- Enforce Custom WalkSpeed
+RunService.Heartbeat:Connect(function()
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") and not Toggles.Fly then
+        if char.Humanoid.WalkSpeed ~= currentSpeed then
+            char.Humanoid.WalkSpeed = currentSpeed
+        end
+    end
+end)
+
 
 -- Populating Visuals Tab
 local origAmbient = Lighting.Ambient
@@ -328,7 +460,6 @@ end)
 -- Event Listeners
 Players.PlayerAdded:Connect(function(player)
     if Toggles.AutoLeave then
-        -- Simple check for admin keywords or group rank
         local nameLower = string.lower(player.Name)
         if string.find(nameLower, "admin") or string.find(nameLower, "mod") then
             LocalPlayer:Kick("Auto Leave Triggered: Potential Admin/Moderator Joined ("..player.Name..")")
