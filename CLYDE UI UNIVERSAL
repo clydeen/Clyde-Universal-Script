@@ -1,4 +1,4 @@
--- Neumorphic Hub V2: Smooth UI, TP, Infinite Jump, Stats & Config
+-- Neumorphic Hub V3: Fixed Minimize, Player TP, Separated Info & Mute Music
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -56,9 +56,7 @@ local function MakeDraggable(guiItem, dragArea)
             startPos = guiItem.Position
             
             input.Changed:Connect(function()
-                if input.UserInputState == Enum.UserInputState.End then
-                    dragging = false
-                end
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
         end
     end)
@@ -81,7 +79,7 @@ end
 -- UI CONSTRUCTION
 -- ==========================================
 local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "NeumorphicHubV2"
+ScreenGui.Name = "NeumorphicHubV3"
 ScreenGui.ResetOnSpawn = false
 
 if gethui then
@@ -98,11 +96,17 @@ local MainFrame = Instance.new("Frame")
 MainFrame.Parent = ScreenGui
 MainFrame.BackgroundColor3 = UITheme.Main
 MainFrame.Position = UDim2.new(0.5, -225, 0.5, -150)
-MainFrame.Size = UDim2.new(0, 450, 0, 300)
+MainFrame.Size = UDim2.new(0, 450, 0, 310)
 MainFrame.ClipsDescendants = true
 Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 15)
 table.insert(ThemeElements.MainFrames, MainFrame)
-MakeDraggable(MainFrame)
+
+-- FIX: Dedicated Drag Area so it doesn't overlap with the minimize button
+local DragArea = Instance.new("Frame", MainFrame)
+DragArea.Size = UDim2.new(1, -50, 0, 35)
+DragArea.BackgroundTransparency = 1
+DragArea.ZIndex = 10
+MakeDraggable(MainFrame, DragArea)
 
 -- Minimized Circle Button
 local MinimizedBtn = Instance.new("TextButton")
@@ -118,7 +122,7 @@ MinimizedBtn.Visible = false
 Instance.new("UICorner", MinimizedBtn).CornerRadius = UDim.new(1, 0)
 MakeDraggable(MinimizedBtn)
 
--- Minimize Animation Logic
+-- Minimize Button (Safely Positioned)
 local MinimizeToggleBtn = Instance.new("TextButton")
 MinimizeToggleBtn.Parent = MainFrame
 MinimizeToggleBtn.Size = UDim2.new(0, 30, 0, 30)
@@ -128,6 +132,7 @@ MinimizeToggleBtn.Text = "-"
 MinimizeToggleBtn.Font = Enum.Font.GothamBold
 MinimizeToggleBtn.TextSize = 20
 MinimizeToggleBtn.TextColor3 = Color3.fromRGB(80, 80, 80)
+MinimizeToggleBtn.ZIndex = 20
 Instance.new("UICorner", MinimizeToggleBtn).CornerRadius = UDim.new(0, 8)
 
 MinimizeToggleBtn.MouseButton1Click:Connect(function()
@@ -141,7 +146,7 @@ MinimizedBtn.MouseButton1Click:Connect(function()
     TweenUI(MinimizedBtn, {Size = UDim2.new(0, 0, 0, 0), TextSize = 0}, 0.3).Completed:Wait()
     MinimizedBtn.Visible = false
     MainFrame.Visible = true
-    TweenUI(MainFrame, {Size = UDim2.new(0, 450, 0, 300), Position = UDim2.new(0.5, -225, 0.5, -150)}, 0.3)
+    TweenUI(MainFrame, {Size = UDim2.new(0, 450, 0, 310), Position = UDim2.new(0.5, -225, 0.5, -155)}, 0.3)
 end)
 
 -- Sidebar
@@ -190,7 +195,7 @@ CreateTab("CONFIG")
 tabs["Main"].Visible = true
 
 -- Tab Buttons Logic
-local yOffset = 10
+local yOffset = 15
 local function CreateTabButton(name)
     local btn = Instance.new("TextButton")
     btn.Parent = Sidebar
@@ -251,7 +256,7 @@ local function CreateInput(parent, text, defaultText, callback)
     
     local lbl = Instance.new("TextLabel")
     lbl.Parent = frame
-    lbl.Size = UDim2.new(0.6, 0, 1, 0)
+    lbl.Size = UDim2.new(0.5, 0, 1, 0)
     lbl.Position = UDim2.new(0, 10, 0, 0)
     lbl.BackgroundTransparency = 1
     lbl.Text = text
@@ -262,13 +267,14 @@ local function CreateInput(parent, text, defaultText, callback)
 
     local box = Instance.new("TextBox")
     box.Parent = frame
-    box.Size = UDim2.new(0, 60, 0, 25)
-    box.Position = UDim2.new(1, -70, 0.5, -12.5)
+    box.Size = UDim2.new(0, 100, 0, 25)
+    box.Position = UDim2.new(1, -110, 0.5, -12.5)
     box.BackgroundColor3 = UITheme.Sidebar
     box.Text = tostring(defaultText)
     box.Font = Enum.Font.GothamBold
     box.TextColor3 = Color3.fromRGB(40, 40, 40)
     box.TextSize = 12
+    box.TextTruncate = Enum.TextTruncate.AtEnd
     Instance.new("UICorner", box).CornerRadius = UDim.new(0, 6)
 
     box.FocusLost:Connect(function() if callback then callback(box.Text) end end)
@@ -339,37 +345,52 @@ end
 -- LOGIC & FEATURES
 -- ==========================================
 
--- Populate MAIN Tab (Images & Info)
-local InfoContainer = Instance.new("Frame", tabs.Main)
-InfoContainer.Size = UDim2.new(1, -20, 0, 80)
-InfoContainer.BackgroundColor3 = UITheme.Buttons
-Instance.new("UICorner", InfoContainer).CornerRadius = UDim.new(0, 8)
-table.insert(ThemeElements.Elements, InfoContainer)
+-- Populate MAIN Tab (Separated Images & Info)
+local MainSpacing = Instance.new("Frame", tabs.Main)
+MainSpacing.Size = UDim2.new(1,0,0,5)
+MainSpacing.BackgroundTransparency = 1
 
-local PlayerIcon = Instance.new("ImageLabel", InfoContainer)
-PlayerIcon.Size = UDim2.new(0, 60, 0, 60)
+-- Player Panel
+local PlayerPanel = Instance.new("Frame", tabs.Main)
+PlayerPanel.Size = UDim2.new(1, -20, 0, 70)
+PlayerPanel.BackgroundColor3 = UITheme.Buttons
+Instance.new("UICorner", PlayerPanel).CornerRadius = UDim.new(0, 8)
+table.insert(ThemeElements.Elements, PlayerPanel)
+
+local PlayerIcon = Instance.new("ImageLabel", PlayerPanel)
+PlayerIcon.Size = UDim2.new(0, 50, 0, 50)
 PlayerIcon.Position = UDim2.new(0, 10, 0, 10)
 PlayerIcon.BackgroundColor3 = UITheme.Sidebar
 Instance.new("UICorner", PlayerIcon).CornerRadius = UDim.new(1, 0)
 
-local GameIcon = Instance.new("ImageLabel", InfoContainer)
-GameIcon.Size = UDim2.new(0, 60, 0, 60)
-GameIcon.Position = UDim2.new(1, -70, 0, 10)
+local WelcomeLbl = CreateLabel(PlayerPanel, "User: " .. LocalPlayer.Name)
+WelcomeLbl.Position = UDim2.new(0, 70, 0, 15)
+WelcomeLbl.Font = Enum.Font.GothamBold
+
+local DisplayLbl = CreateLabel(PlayerPanel, "@" .. LocalPlayer.DisplayName)
+DisplayLbl.Position = UDim2.new(0, 70, 0, 35)
+DisplayLbl.TextSize = 12
+
+-- Game Panel
+local GamePanel = Instance.new("Frame", tabs.Main)
+GamePanel.Size = UDim2.new(1, -20, 0, 70)
+GamePanel.BackgroundColor3 = UITheme.Buttons
+Instance.new("UICorner", GamePanel).CornerRadius = UDim.new(0, 8)
+table.insert(ThemeElements.Elements, GamePanel)
+
+local GameIcon = Instance.new("ImageLabel", GamePanel)
+GameIcon.Size = UDim2.new(0, 50, 0, 50)
+GameIcon.Position = UDim2.new(0, 10, 0, 10)
 GameIcon.BackgroundColor3 = UITheme.Sidebar
 Instance.new("UICorner", GameIcon).CornerRadius = UDim.new(0, 8)
 
-local WelcomeLbl = CreateLabel(InfoContainer, "Welcome, " .. LocalPlayer.Name)
-WelcomeLbl.Position = UDim2.new(0, 80, 0, 10)
-WelcomeLbl.Size = UDim2.new(0, 150, 0, 20)
+local GameNameLbl = CreateLabel(GamePanel, "Loading Game...")
+GameNameLbl.Position = UDim2.new(0, 70, 0, 15)
+GameNameLbl.Font = Enum.Font.GothamBold
+GameNameLbl.TextSize = 13
 
-local GameNameLbl = CreateLabel(InfoContainer, "Loading Game...")
-GameNameLbl.Position = UDim2.new(0, 80, 0, 30)
-GameNameLbl.Size = UDim2.new(0, 150, 0, 20)
-GameNameLbl.TextSize = 12
-
-local ServerStatsLbl = CreateLabel(InfoContainer, "Players: 1/1")
-ServerStatsLbl.Position = UDim2.new(0, 80, 0, 50)
-ServerStatsLbl.Size = UDim2.new(0, 150, 0, 20)
+local ServerStatsLbl = CreateLabel(GamePanel, "Players: 1/1")
+ServerStatsLbl.Position = UDim2.new(0, 70, 0, 35)
 ServerStatsLbl.TextSize = 12
 
 -- Fetch Info Asynchronously
@@ -381,11 +402,21 @@ task.spawn(function()
         GameNameLbl.Text = productInfo.Name
     end)
     while task.wait(5) do
-        pcall(function()
-            ServerStatsLbl.Text = "Players: " .. #Players:GetPlayers() .. " / " .. Players.MaxPlayers
-        end)
+        pcall(function() ServerStatsLbl.Text = "Players: " .. #Players:GetPlayers() .. " / " .. Players.MaxPlayers end)
     end
 end)
+
+-- Mute / Remove Music Button
+CreateButton(tabs.Main, "Mute / Stop All Music", function()
+    for _, obj in pairs(game:GetDescendants()) do
+        if obj:IsA("Sound") then
+            pcall(function()
+                obj:Stop()
+                obj.Volume = 0
+            end)
+        end
+    end
+end, Color3.fromRGB(220, 100, 100))
 
 -- Player ESP & Visuals Logic
 local function createHighlight(instance, color)
@@ -423,7 +454,7 @@ local function updateESP()
     end
 end
 
--- POPULATE PLAYER TAB (Fly, Speed, Inf Jump)
+-- POPULATE PLAYER TAB
 CreateToggle(tabs.Player, "Camera Fly", "Fly", function(state)
     local char = LocalPlayer.Character
     if not char or not char:FindFirstChild("HumanoidRootPart") then return end
@@ -434,7 +465,7 @@ CreateToggle(tabs.Player, "Camera Fly", "Fly", function(state)
         if hum then hum.PlatformStand = true end
         local bv = Instance.new("BodyVelocity")
         bv.Name = "FlyVelocity"
-        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9) -- Reliable massive force
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
         bv.Velocity = Vector3.zero
         bv.Parent = hrp
         
@@ -478,9 +509,7 @@ CreateInput(tabs.Player, "Walk/Fly Speed", "16", function(val)
     if num then
         currentSpeed = num
         local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = currentSpeed
-        end
+        if char and char:FindFirstChild("Humanoid") then char.Humanoid.WalkSpeed = currentSpeed end
     end
 end)
 RunService.Heartbeat:Connect(function()
@@ -491,7 +520,45 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -- POPULATE TELEPORT TAB
-local TpStatus = CreateLabel(tabs.Teleport, "Status: No Location Saved")
+local TpStatus = CreateLabel(tabs.Teleport, "Status: Idle")
+
+-- Player TP (Partial Name Match)
+local targetPlrName = ""
+CreateInput(tabs.Teleport, "Player Target", "Type name...", function(val)
+    targetPlrName = val
+end)
+
+CreateButton(tabs.Teleport, "Teleport to Player", function()
+    if targetPlrName == "" or targetPlrName == "Type name..." then 
+        TpStatus.Text = "Status: Enter a name!" 
+        return 
+    end
+    
+    local lowerInput = string.lower(targetPlrName)
+    local foundPlayer = nil
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            if string.sub(string.lower(p.Name), 1, #lowerInput) == lowerInput or string.find(string.lower(p.DisplayName), lowerInput) then
+                foundPlayer = p
+                break
+            end
+        end
+    end
+    
+    if foundPlayer and foundPlayer.Character and foundPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local char = LocalPlayer.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            char.HumanoidRootPart.CFrame = foundPlayer.Character.HumanoidRootPart.CFrame
+            TpStatus.Text = "Status: TP'd to " .. foundPlayer.Name
+        end
+    else
+        TpStatus.Text = "Status: Player not found/dead"
+    end
+end, Color3.fromRGB(150, 100, 255))
+
+CreateLabel(tabs.Teleport, "--- Spot Saving ---")
+
 CreateButton(tabs.Teleport, "Save Current Spot", function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
@@ -501,17 +568,19 @@ CreateButton(tabs.Teleport, "Save Current Spot", function()
         TpStatus.Text = "Status: Failed to save (Char missing)"
     end
 end)
+
 CreateButton(tabs.Teleport, "Teleport to Spot", function()
     local char = LocalPlayer.Character
     if char and char:FindFirstChild("HumanoidRootPart") then
         if savedPosition then
             char.HumanoidRootPart.CFrame = savedPosition
-            TpStatus.Text = "Status: Teleported!"
+            TpStatus.Text = "Status: Teleported to Spot!"
         else
             TpStatus.Text = "Status: No Spot Saved Yet!"
         end
     end
 end, Color3.fromRGB(80, 200, 120))
+
 
 -- POPULATE VISUALS TAB
 local origAmbient = Lighting.Ambient
@@ -531,7 +600,7 @@ CreateToggle(tabs.Visuals, "Player ESP", "PlayerESP", function() updateESP() end
 CreateToggle(tabs.Visuals, "Item ESP", "ItemESP", function() updateESP() end)
 CreateToggle(tabs.Visuals, "Entity ESP", "EntityESP", function() updateESP() end)
 
--- POPULATE CONFIG TAB (Themes & Destroy)
+-- POPULATE CONFIG TAB
 CreateLabel(tabs.CONFIG, "UI Themes:")
 local function ChangeTheme(bg, side, element, accent)
     UITheme.Accent = accent
