@@ -1,0 +1,341 @@
+-- Neumorphic Hub: Fly, ESP, Night Vision & Admin Detector
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local Workspace = game:GetService("Workspace")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+-- Variables for toggles
+local Toggles = {
+    Fly = false,
+    NightVision = false,
+    PlayerESP = false,
+    ItemESP = false,
+    EntityESP = false,
+    AutoLeave = false
+}
+
+local espObjects = {}
+local flyConnection
+
+-- ==========================================
+-- UI CONSTRUCTION (Neumorphic Style)
+-- ==========================================
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "NeumorphicHub"
+ScreenGui.ResetOnSpawn = false
+
+if gethui then
+    ScreenGui.Parent = gethui()
+elseif syn and syn.protect_gui then
+    syn.protect_gui(ScreenGui)
+    ScreenGui.Parent = game:GetService("CoreGui")
+else
+    ScreenGui.Parent = game:GetService("CoreGui")
+end
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Parent = ScreenGui
+MainFrame.BackgroundColor3 = Color3.fromRGB(230, 235, 240)
+MainFrame.Position = UDim2.new(0.3, 0, 0.3, 0)
+MainFrame.Size = UDim2.new(0, 450, 0, 300)
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.ClipsDescendants = true
+Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 15)
+
+-- Sidebar
+local Sidebar = Instance.new("Frame")
+Sidebar.Parent = MainFrame
+Sidebar.BackgroundColor3 = Color3.fromRGB(220, 225, 230)
+Sidebar.Size = UDim2.new(0, 130, 1, 0)
+Sidebar.BorderSizePixel = 0
+Instance.new("UICorner", Sidebar).CornerRadius = UDim.new(0, 15)
+
+-- Tabs Container
+local Content = Instance.new("Frame")
+Content.Parent = MainFrame
+Content.BackgroundTransparency = 1
+Content.Position = UDim2.new(0, 140, 0, 10)
+Content.Size = UDim2.new(1, -150, 1, -20)
+
+local currentTab = nil
+local function CreateTab(name)
+    local tabFrame = Instance.new("ScrollingFrame")
+    tabFrame.Parent = Content
+    tabFrame.Size = UDim2.new(1, 0, 1, 0)
+    tabFrame.BackgroundTransparency = 1
+    tabFrame.ScrollBarThickness = 2
+    tabFrame.Visible = false
+    
+    local layout = Instance.new("UIListLayout", tabFrame)
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding = UDim.new(0, 8)
+    
+    return tabFrame
+end
+
+local tabs = {
+    Main = CreateTab("Main"),
+    Visuals = CreateTab("Visuals"),
+    Other = CreateTab("Other")
+}
+tabs.Main.Visible = true
+currentTab = tabs.Main
+
+-- Tab Buttons
+local yOffset = 10
+local function CreateTabButton(name, targetTab)
+    local btn = Instance.new("TextButton")
+    btn.Parent = Sidebar
+    btn.Size = UDim2.new(0, 110, 0, 35)
+    btn.Position = UDim2.new(0, 10, 0, yOffset)
+    btn.BackgroundColor3 = Color3.fromRGB(240, 245, 250)
+    btn.Text = name
+    btn.Font = Enum.Font.GothamMedium
+    btn.TextSize = 14
+    btn.TextColor3 = Color3.fromRGB(80, 80, 80)
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    yOffset = yOffset + 45
+    
+    btn.MouseButton1Click:Connect(function()
+        for _, tab in pairs(tabs) do tab.Visible = false end
+        targetTab.Visible = true
+    end)
+end
+
+CreateTabButton("Main", tabs.Main)
+CreateTabButton("Visuals", tabs.Visuals)
+CreateTabButton("Other", tabs.Other)
+
+-- Element Builders
+local function CreateLabel(parent, text)
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = parent
+    lbl.Size = UDim2.new(1, 0, 0, 30)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = " " .. text
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Font = Enum.Font.GothamMedium
+    lbl.TextSize = 14
+    lbl.TextColor3 = Color3.fromRGB(60, 60, 60)
+end
+
+local function CreateToggle(parent, text, flag, callback)
+    local frame = Instance.new("Frame")
+    frame.Parent = parent
+    frame.Size = UDim2.new(1, -10, 0, 40)
+    frame.BackgroundColor3 = Color3.fromRGB(240, 245, 250)
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
+    
+    local lbl = Instance.new("TextLabel")
+    lbl.Parent = frame
+    lbl.Size = UDim2.new(0.7, 0, 1, 0)
+    lbl.Position = UDim2.new(0, 10, 0, 0)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = text
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.Font = Enum.Font.Gotham
+    lbl.TextSize = 14
+    lbl.TextColor3 = Color3.fromRGB(80, 80, 80)
+    
+    local btn = Instance.new("TextButton")
+    btn.Parent = frame
+    btn.Size = UDim2.new(0, 50, 0, 25)
+    btn.Position = UDim2.new(1, -60, 0.5, -12.5)
+    btn.BackgroundColor3 = Color3.fromRGB(200, 205, 210)
+    btn.Text = "OFF"
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = Color3.fromRGB(255,255,255)
+    btn.TextSize = 12
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+    
+    btn.MouseButton1Click:Connect(function()
+        Toggles[flag] = not Toggles[flag]
+        if Toggles[flag] then
+            btn.BackgroundColor3 = Color3.fromRGB(100, 180, 255)
+            btn.Text = "ON"
+        else
+            btn.BackgroundColor3 = Color3.fromRGB(200, 205, 210)
+            btn.Text = "OFF"
+        end
+        if callback then callback(Toggles[flag]) end
+    end)
+end
+
+local function CreateButton(parent, text, callback)
+    local btn = Instance.new("TextButton")
+    btn.Parent = parent
+    btn.Size = UDim2.new(1, -10, 0, 40)
+    btn.BackgroundColor3 = Color3.fromRGB(255, 100, 100)
+    btn.Text = text
+    btn.Font = Enum.Font.GothamBold
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    btn.MouseButton1Click:Connect(callback)
+end
+
+-- ==========================================
+-- LOGIC & FEATURES
+-- ==========================================
+
+-- ESP Logic (using Highlights)
+local function createHighlight(instance, color)
+    if not instance then return end
+    local hl = Instance.new("Highlight")
+    hl.Parent = instance
+    hl.FillColor = color
+    hl.FillTransparency = 0.5
+    hl.OutlineColor = Color3.new(1,1,1)
+    table.insert(espObjects, hl)
+end
+
+local function clearESP()
+    for _, v in pairs(espObjects) do
+        if v and v.Parent then v:Destroy() end
+    end
+    espObjects = {}
+end
+
+local function updateESP()
+    clearESP()
+    if Toggles.PlayerESP then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                createHighlight(p.Character, Color3.fromRGB(255, 0, 0))
+            end
+        end
+    end
+    if Toggles.ItemESP then
+        for _, obj in pairs(Workspace:GetDescendants()) do
+            if obj:IsA("Tool") then
+                createHighlight(obj.Parent == Workspace and obj or obj.Parent, Color3.fromRGB(0, 255, 0))
+            end
+        end
+    end
+    if Toggles.EntityESP then
+        for _, obj in pairs(Workspace:GetChildren()) do
+            if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and not Players:GetPlayerFromCharacter(obj) then
+                createHighlight(obj, Color3.fromRGB(255, 150, 0))
+            end
+        end
+    end
+end
+
+RunService.RenderStepped:Connect(function()
+    if Toggles.PlayerESP or Toggles.ItemESP or Toggles.EntityESP then
+        -- Throttled ESP update can be implemented here if laggy, 
+        -- but Highlight instances auto-update their bounds.
+    end
+end)
+
+-- Populating Main Tab
+CreateLabel(tabs.Main, "Game: " .. game.Name)
+CreateLabel(tabs.Main, "User: " .. LocalPlayer.Name)
+
+CreateToggle(tabs.Main, "Camera Fly", "Fly", function(state)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = char.HumanoidRootPart
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
+    if state then
+        -- Freeze character normally
+        if hum then hum.PlatformStand = true end
+        
+        local bv = Instance.new("BodyVelocity")
+        bv.Name = "FlyVelocity"
+        bv.MaxForce = Vector3.new(100000, 100000, 100000)
+        bv.Velocity = Vector3.zero
+        bv.Parent = hrp
+        
+        local bg = Instance.new("BodyGyro")
+        bg.Name = "FlyGyro"
+        bg.MaxTorque = Vector3.new(100000, 100000, 100000)
+        bg.P = 9e4
+        bg.Parent = hrp
+
+        local speed = 50
+        flyConnection = RunService.RenderStepped:Connect(function()
+            local moveDir = Vector3.zero
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveDir = moveDir + Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveDir = moveDir - Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveDir = moveDir - Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveDir = moveDir + Camera.CFrame.RightVector
+            end
+            
+            bv.Velocity = moveDir * speed
+            bg.CFrame = Camera.CFrame
+        end)
+    else
+        if hum then hum.PlatformStand = false end
+        if hrp:FindFirstChild("FlyVelocity") then hrp.FlyVelocity:Destroy() end
+        if hrp:FindFirstChild("FlyGyro") then hrp.FlyGyro:Destroy() end
+        if flyConnection then flyConnection:Disconnect() end
+    end
+end)
+
+CreateToggle(tabs.Main, "Auto Leave (Admin Det)", "AutoLeave", function(state)
+    -- Logic handled in PlayerAdded event below
+end)
+
+-- Populating Visuals Tab
+local origAmbient = Lighting.Ambient
+local origOutdoor = Lighting.OutdoorAmbient
+CreateToggle(tabs.Visuals, "Night Vision", "NightVision", function(state)
+    if state then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.GlobalShadows = false
+    else
+        Lighting.Ambient = origAmbient
+        Lighting.OutdoorAmbient = origOutdoor
+        Lighting.GlobalShadows = true
+    end
+end)
+
+CreateToggle(tabs.Visuals, "Player ESP", "PlayerESP", function(state) updateESP() end)
+CreateToggle(tabs.Visuals, "Item ESP", "ItemESP", function(state) updateESP() end)
+CreateToggle(tabs.Visuals, "Entity ESP", "EntityESP", function(state) updateESP() end)
+
+-- Populating Other Tab
+CreateButton(tabs.Other, "Destroy GUI", function()
+    clearESP()
+    Toggles.Fly = false
+    if flyConnection then flyConnection:Disconnect() end
+    local char = LocalPlayer.Character
+    if char then
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp:FindFirstChild("FlyVelocity") then hrp.FlyVelocity:Destroy() end
+        if hrp and hrp:FindFirstChild("FlyGyro") then hrp.FlyGyro:Destroy() end
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum then hum.PlatformStand = false end
+    end
+    ScreenGui:Destroy()
+end)
+
+-- Event Listeners
+Players.PlayerAdded:Connect(function(player)
+    if Toggles.AutoLeave then
+        -- Simple check for admin keywords or group rank
+        local nameLower = string.lower(player.Name)
+        if string.find(nameLower, "admin") or string.find(nameLower, "mod") then
+            LocalPlayer:Kick("Auto Leave Triggered: Potential Admin/Moderator Joined ("..player.Name..")")
+        end
+    end
+    if Toggles.PlayerESP then
+        task.wait(1)
+        updateESP()
+    end
+end)
